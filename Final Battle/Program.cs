@@ -1,4 +1,5 @@
 ﻿
+
 using System.IO.Pipes;
 using System.Reflection.Metadata;
 using System.Threading;
@@ -36,6 +37,55 @@ public abstract class Action
     public abstract void Execute(Character user, Character target);
 
 }
+/*
+public class HealAction : Action
+{
+    private Party PartyRef;
+    public Item Item { get; set; }
+    public Character Target { get; }
+    public HealAction(Item item, Character target, Party party)
+    {
+        Item = item;
+        Target = target;
+        PartyRef = party;
+    }
+    public override void Execute(Character user, Character target, Party party)
+    {
+
+        Console.WriteLine($"{current_attacker.Name} used {current_attacker.StandardAttack.name} on {target.Name}");
+        Console.WriteLine("============================\n\n============================\n\n============================\n\n");
+        Item.Use_Item(user);
+        party.Inventory.Remove(Item);
+
+
+    }
+
+    public override void Execute(Character user, Character target) { }
+
+
+}*/
+public class HealAction : Action
+{
+    public Item Item { get; }
+    public Character Target { get; }
+
+    private Party PartyRef;
+
+    public HealAction(Item item, Character target, Party party)
+    {
+        Item = item;
+        Target = target;
+        PartyRef = party;
+    }
+
+    public override void Execute(Character user, Character _)
+    {
+        Console.WriteLine($"{user.Name} used {Item.Name} on {Target.Name}");
+        Item.Use_Item(Target);
+        PartyRef.Inventory.Remove(Item);
+    }
+}
+
 
 public abstract class Player
 {
@@ -47,7 +97,7 @@ public abstract class Item
 {
     public string Name { get; }
     public Item(string name) { Name = name; }
-    public abstract void Use_Item(Character user);
+    public abstract void Use_Item(Character target);
 
 }
 public class HealthPotion:Item
@@ -56,11 +106,12 @@ public class HealthPotion:Item
     public override void Use_Item(Character user)
     {
 
-        if (user.CurrentHealth + 10 < user.MaxHealth)
-        {
-            user.CurrentHealth += 10;
-        }
-        Console.WriteLine($"used {this.Name} on {user.Name} and increased hp to {user.CurrentHealth}");
+        int heal_amt = 10;
+        int newhp = Math.Min(user.MaxHealth, user.CurrentHealth + heal_amt);
+        int actual_heal = newhp - user.CurrentHealth;
+        user.CurrentHealth = newhp;
+
+        Console.WriteLine($"{user.Name} used {Name} and healed for {actual_heal} health. Current health is now {user.CurrentHealth}/{user.MaxHealth}.");
 
     }
 }
@@ -71,6 +122,7 @@ public class HumanPlayer : Player
         Console.WriteLine($"{user.Name}'s turn. Choose an action:");
         Console.WriteLine($"1. Attack with {user.StandardAttack}");
         Console.WriteLine($"2. Attack with {user.SecondaryAttack}");
+        Console.WriteLine($"3. Use potion ");
         string choice = Console.ReadLine();
         if (choice == "1")
         {
@@ -79,6 +131,36 @@ public class HumanPlayer : Player
         else if(choice=="2"){
             return new AttackAction(user.SecondaryAttack);
 
+        }
+        else if (choice == "3")
+        {
+            Console.WriteLine("Choose a potion to use:");
+            for (int i = 0; i < party_member.Count; i++)
+            {
+                Console.WriteLine($"{i + 1}. {party_member.ElementAt(i).Name}");
+            }
+            int potionChoice = int.Parse(Console.ReadLine()) - 1;
+            if (potionChoice >= 0 && potionChoice < party_member.Count)
+            {
+                // Assuming 'party_member' is a Party or you have access to the Party instance
+                // You need to pass the Item, the target Character, and the Party reference
+                // For this context, you can cast party_member to Party if possible, or pass the correct Party instance
+                Party party = party_member as Party;
+                if (party != null)
+                {
+                    return new HealAction(new HealthPotion(), party.Members.ElementAt(potionChoice), party);
+                }
+                else
+                {
+                    Console.WriteLine("Party reference not available. Doing nothing.");
+                    return new DoNothing();
+                }
+            }
+            else
+            {
+                Console.WriteLine("Invalid choice. Doing nothing.");
+                return new DoNothing();
+            }
         }
         else
         {
@@ -92,8 +174,12 @@ public class MonsterPlayer : Player
     Random r = new Random();
     public override Action SelectAction(Character user, ICollection<Character> party_member, ICollection<Character> Enemy)
     {
-        // For simplicity, monsters always attack
-        if (r.Next(2) == 0)
+        Console.WriteLine($"{user.Name}'s turn. Choose an action:");
+        Console.WriteLine($"1. Attack with {user.StandardAttack.name}");
+        Console.WriteLine($"2. Attack with {user.SecondaryAttack.name}");
+        Console.WriteLine($"3. Use potion ");
+        string? choice = Console.ReadLine();
+        if (choice == "1")
         {
             return new AttackAction(user.StandardAttack);
         }
@@ -103,20 +189,31 @@ public class MonsterPlayer : Player
     }
 }
 public class ComputerPlayer : Player {
-    Random r = new Random();
-    public override Action SelectAction(Character user, ICollection<Character> party_member, ICollection<Character> Enemy)
+
+    public override Action SelectAction(Character user, ICollection<Character> party_members, ICollection<Character> enemies)
     {
-        //Thread.Sleep(1000);
-        if (r.Next(2) == 0)
+        Party party = (party_members as Party);
+        Random rng = new Random();
+
+        bool lowHp = user.CurrentHealth < user.MaxHealth / 2;
+        bool hasPotion = party != null && party.Inventory.Any();
+        bool usePotion = lowHp && hasPotion && rng.Next(100) < 25;
+
+        if (usePotion)
         {
-            return new AttackAction(user.StandardAttack);
+            var potion = party.Inventory.FirstOrDefault(item => item is HealthPotion);
+            if (potion != null)
+            {
+                return new HealAction(potion, user, party); // heal self
+            }
         }
-        else
-        {
-            return new AttackAction(user.SecondaryAttack);
-        }
-        ;
+
+        // Otherwise attack random enemy
+        var target = enemies.ElementAt(rng.Next(enemies.Count));
+        return new AttackAction(user.StandardAttack);
     }
+
+
 }
 
 public class DoNothing : Action
@@ -388,7 +485,7 @@ class FinalBattle
 {
     public static void Main(string[] args)
     {
-        
+
         //Action action = new DoNothing();
         //Action attack = new AttackAction(DoNothing);
 
@@ -398,7 +495,7 @@ class FinalBattle
         //Character skelly2 = new Skeleton("Skeleton2", 50, 10);
         Character trueprogrammer = new TrueProgrammer("UserName Holder", 20, 1);
         Character Monlina = new Mage("Monlina", 10, 5);
-        Character Keith = new Tank("Keith",50,1);
+        Character Keith = new Tank("Keith", 50, 1);
         Character Pogi = new Tank("Pogi", 40, 1);
         Character Luhou = new Mage("luhou", 10, 5);
 
@@ -412,10 +509,72 @@ class FinalBattle
         trueprogrammer.Name = Console.ReadLine();
 
         var players = GameController();
+
+        Party Hero_Party = new Party(new List<Character>()
+        {
+            Keith,
+            Pogi,
+            trueprogrammer,
+            Monlina,
+            Luhou
+        }, new List<Item>()
+        {
+            new HealthPotion(),
+            new HealthPotion(),
+            new HealthPotion()
+        });
+
+        List<Party> Monster_Party = new List<Party>()
+        {
+            new Party(
+                new List<Character>()
+                {
+                    new Skeleton("Skeleton1", 5, 10),
+                    new Skeleton("Skeleton2", 5, 10)
+                },
+                new List<Item>()
+                {
+                    new HealthPotion()
+                }
+                ),
+
+            new Party(
+                new List<Character>()
+                {
+                    new Skeleton("Skeleton1", 5, 10),
+                    new Skeleton("Skeleton2", 5, 10),
+                    new Skeleton("Skeleton3", 5, 10),
+                    new Skeleton("Skeleton4", 5, 10),
+                    new Skeleton("Skeleton5", 5, 10),
+                    new Skeleton("MageSkelly", 12 ,5)
+                },
+                new List<Item>
+                {
+                    new HealthPotion()
+                }
+                ),
+            
+            new Party(
+                new List<Character>
+                {
+                    new THE_UNCODED_ONE("THE_UNCODED_ONE", 100, 10)
+                },
+                new List<Item>()
+                {
+                    new HealthPotion()
+                }
+                )
+
+        };
+        
+
+
+
         Console.Clear();
+        /*
         List<Item> HeroItem = new List<Item>()
         {
-           //
+          
         };
         List<Item> MonsterItem = new List<Item>();
 
@@ -443,7 +602,7 @@ class FinalBattle
             new THE_UNCODED_ONE("THE_UNCODED_ONE", 100, 10) 
         }
         };
-
+        
 
         ICollection<Character> Hero_Party = new List<Character>()
         {
@@ -456,7 +615,17 @@ class FinalBattle
         
         };
 
-
+        ICollection<Character> Monster_Party = new List<Character>()
+        {
+            new Skeleton("Skeleton1", 5, 10),
+            new Skeleton("Skeleton2", 5, 10),
+            new Skeleton("Skeleton3", 5, 10),
+            new Skeleton("Skeleton4", 5, 10),
+            new Skeleton("Skeleton5", 5, 10),
+            new Skeleton("MageSkelly", 12 ,5),
+            new THE_UNCODED_ONE("THE_UNCODED_ONE", 100, 10)
+        };
+        */
 
         for (int i = 0; i < Monster_Party.Count; i++)
         {
@@ -484,8 +653,8 @@ class FinalBattle
 
 
 
-    public static bool RunBattle(ICollection<Character> Hero_Party ,
-                                ICollection<Character> Monster_Party,
+    public static bool RunBattle(Party Hero_Party ,
+                                Party Monster_Party,
                                 Player HeroPlayer,
                                 Player MonsterController)
     {
@@ -494,16 +663,16 @@ class FinalBattle
 
         while (true)
         {
-            Show_hp(Hero_Party,Monster_Party);
+            Show_hp(Hero_Party.Members,Monster_Party.Members);
 
-            var alive_heroes = Hero_Party.Where(h => h.CurrentHealth > 0).ToList();
+            var alive_heroes = Hero_Party.Members.Where(h => h.CurrentHealth > 0).ToList();
             if (!alive_heroes.Any())
             {
                 Console.WriteLine("All heroes have been defeated! Game Over.");
                 return false;
             }
 
-            var alive_monsters = Monster_Party.Where(h => h.CurrentHealth > 0).ToList();
+            var alive_monsters = Monster_Party.Members.Where(h => h.CurrentHealth > 0).ToList();
             if (!alive_monsters.Any())
             {
                 Console.WriteLine("All monsters have been defeated! Heroes win!");
@@ -514,14 +683,14 @@ class FinalBattle
             foreach (var member in alive_heroes)
             {
                 Console.WriteLine($"It is {member.Name}'s turn...");
-                Action act = HeroPlayer.SelectAction(member, Hero_Party, Monster_Party);
+                Action act = HeroPlayer.SelectAction(member, Hero_Party.Members, Monster_Party.Members);
                 act.Execute(member, alive_monsters.FirstOrDefault());
 
 
 
-                Hero_Party = Hero_Party.Where(h => h.CurrentHealth > 0).ToList();
+                Hero_Party.Members = Hero_Party.Members.Where(h => h.CurrentHealth > 0).ToList();
 
-                if (!Hero_Party.Any())
+                if (!Hero_Party.Members.Any())
                 {
                     Console.WriteLine("All heroes have been defeated! Game Over.");
                     return false;
@@ -537,7 +706,7 @@ class FinalBattle
                 
 
                 Console.WriteLine($"It is {monster.Name}'s turn...");
-                Action act = MonsterController.SelectAction(monster, Monster_Party, Hero_Party);
+                Action act = MonsterController.SelectAction(monster, Monster_Party.Members, Hero_Party.Members);
                 act.Execute(monster, alive_heroes.FirstOrDefault());
 
                 if (awoken  == false)
@@ -549,8 +718,8 @@ class FinalBattle
                     }
                 }
 
-                Monster_Party = Monster_Party.Where(h => h.CurrentHealth > 0).ToList();
-                if (!Monster_Party.Any())
+                Monster_Party.Members = Monster_Party.Members.Where(h => h.CurrentHealth > 0).ToList();
+                if (!Monster_Party.Members.Any())
                 {
                     Console.WriteLine("All monsters have been defeated! Heroes win!");
                     return true;
@@ -617,4 +786,18 @@ class FinalBattle
 
     }
     //
+}
+
+public class Party
+{
+    public ICollection<Character> Members { get; set; }
+
+    public List<Item> Inventory { get; set; } 
+    
+    public Party(ICollection<Character> members,
+                 List<Item> inventory)
+    {
+        this.Members = members;
+        this.Inventory = inventory;
+    }
 }
