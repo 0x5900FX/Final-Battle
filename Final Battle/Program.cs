@@ -415,7 +415,7 @@ class FinalBattle
         Console.Clear();
         List<Item> HeroItem = new List<Item>()
         {
-            new Item("Hp")
+           //
         };
         List<Item> MonsterItem = new List<Item>();
 
